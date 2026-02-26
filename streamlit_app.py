@@ -295,7 +295,7 @@ def crear_pdf(area, f_ini, f_fin):
     pdf.ln(3)
 
     pdf.set_font("Arial", 'B', 10)
-    pdf.cell(0, 6, clean_text("Detalle OEE por Línea / Célula:"), ln=True)
+    pdf.cell(0, 6, clean_text("Detalle OEE por Línea / Celda:"), ln=True)
     lineas = ['L1', 'L2', 'L3', 'L4'] if area.upper() == 'ESTAMPADO' else ['CELDA', 'PRP']
     for l in lineas:
         m_l = get_metrics_pdf(l, df_oee_pdf)
