@@ -495,7 +495,7 @@ def crear_pdf(area, fecha):
 col1, col2 = st.columns(2)
 
 with col1:
-    if st.button("🏭 Generar PDF Estampado", use_container_width=True):
+    if st.button("Generar PDF Estampado", use_container_width=True):
         with st.spinner(f"Generando PDF de Estampado..."):
             try:
                 pdf_data = crear_pdf("Estampado", fecha_pdf)
