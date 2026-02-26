@@ -1,12 +1,3 @@
-¡Es una excelente idea! Para que el reporte luzca totalmente profesional, necesitamos evitar que los títulos queden "viudos" (solos al final de una página) o que los gráficos se separen de su encabezado, pero sin forzar saltos de página innecesarios que dejen grandes espacios en blanco.
-
-Para lograr esto, he creado una función inteligente llamada check_space(pdf, espacio_necesario). Esta función calcula en qué parte de la hoja estamos; si el gráfico o tabla que sigue ya no entra en el espacio restante, hace un salto de página automático. Si aún hay lugar, lo imprime en la misma hoja.
-
-Además, he reordenado las secciones tal como lo pediste y actualicé su numeración, colocando "Horarios de Operación" como la Sección 3 (justo después del detalle de fallas).
-
-Aquí tienes el código completo con estas mejoras implementadas. Puedes reemplazar todo tu app.py con esto:
-
-Python
 import streamlit as st
 import pandas as pd
 import plotly.express as px
