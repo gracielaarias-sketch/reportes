@@ -301,7 +301,6 @@ def crear_pdf(area, f_ini, f_fin):
         m_l = get_metrics_pdf(l, df_oee_pdf)
         print_pdf_metric_row(pdf, f"   ➤ {l} ", m_l)
         
-    # ASTERISCO DE PROMEDIO PONDERADO SI ES UN RANGO DE FECHAS
     if f_ini != f_fin:
         pdf.ln(1)
         pdf.set_font("Arial", 'I', 8)
@@ -392,37 +391,65 @@ def crear_pdf(area, f_ini, f_fin):
 
     # 3. HORARIOS DE OPERACIÓN POR MÁQUINA
     check_space(pdf, 40)
-    print_section_title(pdf, "3. Horarios Extremos de Operación en el Periodo", theme_color)
+    
+    if f_ini == f_fin:
+        print_section_title(pdf, "3. Horarios de Operación por Máquina", theme_color)
+        header_inicio = "Primer Registro (Inicio)"
+        header_fin = "Último Registro (Fin)"
+    else:
+        print_section_title(pdf, "3. Horarios Promedio de Operación en el Periodo", theme_color)
+        header_inicio = "Inicio Promedio *"
+        header_fin = "Fin Promedio *"
 
     if not df_pdf.empty:
         col_inicio = next((c for c in df_pdf.columns if 'inicio' in c.lower() or 'desde' in c.lower()), None)
         col_fin = next((c for c in df_pdf.columns if 'fin' in c.lower() or 'hasta' in c.lower()), None)
 
         if col_inicio and col_fin:
-            df_times = df_pdf[['Máquina', col_inicio, col_fin]].copy()
+            df_times = df_pdf[['Máquina', 'Fecha_Filtro', col_inicio, col_fin]].copy()
             df_times['dt_inicio'] = pd.to_datetime(df_times[col_inicio], format='%H:%M:%S', errors='coerce').fillna(pd.to_datetime(df_times[col_inicio], format='%H:%M', errors='coerce'))
             df_times['dt_fin'] = pd.to_datetime(df_times[col_fin], format='%H:%M:%S', errors='coerce').fillna(pd.to_datetime(df_times[col_fin], format='%H:%M', errors='coerce'))
+
+            # Convertir a minutos desde la medianoche para calcular promedios reales
+            df_times['minutos_inicio'] = df_times['dt_inicio'].dt.hour * 60 + df_times['dt_inicio'].dt.minute
+            df_times['minutos_fin'] = df_times['dt_fin'].dt.hour * 60 + df_times['dt_fin'].dt.minute
+
+            if f_ini == f_fin:
+                agg_df = df_times.groupby('Máquina').agg({'minutos_inicio': 'min', 'minutos_fin': 'max'}).reset_index()
+            else:
+                # Promedio exacto: Mínimo y máximo por cada día, luego promedio de esos días
+                daily_df = df_times.groupby(['Máquina', 'Fecha_Filtro']).agg({'minutos_inicio': 'min', 'minutos_fin': 'max'}).reset_index()
+                agg_df = daily_df.groupby('Máquina').agg({'minutos_inicio': 'mean', 'minutos_fin': 'mean'}).reset_index()
 
             setup_table_header(pdf, theme_color)
             pdf.set_font("Arial", 'B', 9)
             pdf.cell(80, 8, clean_text("Máquina"), border=1, fill=True)
-            pdf.cell(50, 8, clean_text("Registro Más Temprano"), border=1, align='C', fill=True)
-            pdf.cell(50, 8, clean_text("Registro Más Tardío"), border=1, align='C', ln=True, fill=True)
+            pdf.cell(50, 8, clean_text(header_inicio), border=1, align='C', fill=True)
+            pdf.cell(50, 8, clean_text(header_fin), border=1, align='C', ln=True, fill=True)
 
             setup_table_row(pdf)
             pdf.set_font("Arial", '', 9)
-            for maq in sorted(df_times['Máquina'].unique()):
-                maq_data = df_times[df_times['Máquina'] == maq]
-                
-                min_time = maq_data['dt_inicio'].min()
-                max_time = maq_data['dt_fin'].max()
+            
+            def mins_to_str(mins):
+                if pd.isna(mins): return "-"
+                h = int(mins // 60)
+                m = int(mins % 60)
+                return f"{h:02d}:{m:02d}"
 
-                str_min = min_time.strftime('%H:%M') if pd.notnull(min_time) else "-"
-                str_max = max_time.strftime('%H:%M') if pd.notnull(max_time) else "-"
+            for _, row in agg_df.sort_values('Máquina').iterrows():
+                str_min = mins_to_str(row['minutos_inicio'])
+                str_max = mins_to_str(row['minutos_fin'])
 
-                pdf.cell(80, 8, clean_text(str(maq)[:50]), border='B')
+                pdf.cell(80, 8, clean_text(str(row['Máquina'])[:50]), border='B')
                 pdf.cell(50, 8, clean_text(str_min), border='B', align='C')
                 pdf.cell(50, 8, clean_text(str_max), border='B', align='C', ln=True)
+
+            if f_ini != f_fin:
+                pdf.ln(2)
+                pdf.set_font("Arial", 'I', 8)
+                pdf.set_text_color(100, 100, 100)
+                pdf.cell(0, 5, clean_text("* Los horarios mostrados son el promedio de la hora de inicio y fin de cada máquina en los días del periodo."), ln=True)
+                pdf.set_text_color(0, 0, 0)
         else:
             pdf.set_font("Arial", 'I', 9)
             pdf.set_text_color(100, 100, 100)
