@@ -290,7 +290,6 @@ def crear_pdf(area, f_ini, f_fin):
         avg_bano = df_pdf[df_pdf['Nivel Evento 4'].astype(str).str.contains('Baño', case=False, na=False)]['Tiempo (Min)'].mean()
         avg_refr = df_pdf[df_pdf['Nivel Evento 4'].astype(str).str.contains('Refrigerio', case=False, na=False)]['Tiempo (Min)'].mean()
         
-        # Aquí se aplicó el guion en lugar de la viñeta
         pdf.cell(0, 6, clean_text(f"   - Promedio Baño: {avg_bano:.1f} min" if not pd.isna(avg_bano) else "   - Promedio Baño: Sin registros"), ln=True)
         pdf.cell(0, 6, clean_text(f"   - Promedio Refrigerio: {avg_refr:.1f} min" if not pd.isna(avg_refr) else "   - Promedio Refrigerio: Sin registros"), ln=True)
     else:
@@ -302,7 +301,6 @@ def crear_pdf(area, f_ini, f_fin):
     lineas = ['L1', 'L2', 'L3', 'L4'] if area.upper() == 'ESTAMPADO' else ['CELDA', 'PRP']
     for l in lineas:
         m_l = get_metrics_pdf(l, df_oee_pdf)
-        # Aquí se aplicó el símbolo mayor que (>) en lugar de la flecha
         print_pdf_metric_row(pdf, f"   > {l} ", m_l)
         
     if f_ini != f_fin:
@@ -516,51 +514,62 @@ def crear_pdf(area, f_ini, f_fin):
             pdf.cell(30, 7, clean_text(str(int(row['Observadas']))), border='B', align='C', ln=True)
         pdf.ln(5)
 
-    # 6. TIEMPOS POR OPERARIO
-    if not df_pdf.empty:
-        check_space(pdf, 110)
-        print_section_title(pdf, "6. Tiempos Totales por Operario", theme_color)
-        op_tiempos = df_pdf.groupby('Operador')['Tiempo (Min)'].sum().reset_index().sort_values('Tiempo (Min)', ascending=False)
-        
-        fig_op = px.bar(op_tiempos, x='Operador', y='Tiempo (Min)', color='Tiempo (Min)', color_continuous_scale='Blues' if area.upper()=="ESTAMPADO" else 'Oranges', text='Tiempo (Min)')
-        fig_op.update_traces(texttemplate='%{text:.1f}', textposition='outside', cliponaxis=False)
-        fig_op.update_layout(width=800, height=450, margin=dict(t=80, b=150, l=40, r=40), plot_bgcolor='rgba(0,0,0,0)', coloraxis_showscale=False)
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile4:
-            fig_op.write_image(tmpfile4.name, engine="kaleido")
-            pdf.image(tmpfile4.name, w=170)
-            os.remove(tmpfile4.name)
-        pdf.ln(5)
-
-    # 7. PERFORMANCE DE OPERARIOS
+    # 6. PERFORMANCE DE OPERARIOS Y MÁQUINAS (Antes Sección 7)
     check_space(pdf, 40)
-    print_section_title(pdf, "7. Performance de Operarios", theme_color)
+    print_section_title(pdf, "6. Performance de Operarios y Máquinas", theme_color)
     
     if not df_op_pdf.empty:
         c_op_name = next((c for c in df_op_pdf.columns if 'operador' in c.lower() or 'nombre' in c.lower()), None)
         c_perf = next((c for c in df_op_pdf.columns if 'performance' in c.lower()), None)
         
         if c_op_name and c_perf:
+            # 1. Mapear operarios a máquinas usando la pestaña Producción (Columnas O a T -> índices 14 a 19)
+            op_maq_map = {}
+            if not df_prod_pdf.empty:
+                # Asegurar que iteramos hasta la columna 20 (índice 19) sin errores fuera de límite
+                limite_col = min(20, len(df_prod_pdf.columns))
+                cols_ops = df_prod_pdf.columns[14:limite_col] if len(df_prod_pdf.columns) > 14 else []
+                
+                for _, r in df_prod_pdf.iterrows():
+                    maq = str(r.get('Máquina', '')).strip()
+                    if maq and maq.lower() != 'nan':
+                        for c in cols_ops:
+                            op = str(r[c]).strip().upper()
+                            if op and op != 'NAN' and op != 'NONE':
+                                if op not in op_maq_map:
+                                    op_maq_map[op] = set()
+                                op_maq_map[op].add(maq)
+
             # Promedio ponderado (media de sus registros en el rango)
             df_op_pdf[c_perf] = pd.to_numeric(df_op_pdf[c_perf], errors='coerce')
             df_op_print = df_op_pdf.groupby(c_op_name)[c_perf].mean().reset_index().sort_values(c_op_name)
             
             setup_table_header(pdf, theme_color)
             pdf.set_font("Arial", 'B', 9)
-            pdf.cell(120, 8, clean_text("Operador"), border=1, fill=True)
+            pdf.cell(70, 8, clean_text("Operador"), border=1, fill=True)
+            pdf.cell(70, 8, clean_text("Máquina(s) Asignada(s)"), border=1, align='C', fill=True)
             
             # Cambiar el título de la tabla si es un rango de fechas
-            header_perf = "Performance Promedio (%) *" if f_ini != f_fin else "Performance (%)"
-            pdf.cell(60, 8, clean_text(header_perf), border=1, align='C', ln=True, fill=True)
+            header_perf = "Perf. Promedio (%) *" if f_ini != f_fin else "Performance (%)"
+            pdf.cell(50, 8, clean_text(header_perf), border=1, align='C', ln=True, fill=True)
             
             setup_table_row(pdf)
             pdf.set_font("Arial", '', 9)
             for _, row in df_op_print.iterrows():
+                # Nombre original y convertido a mayúsculas para buscar coincidencias
+                op_name_orig = str(row[c_op_name])
+                op_name_upper = op_name_orig.strip().upper()
+                
+                # Obtener la(s) máquina(s) operada(s), separadas por coma
+                maquinas_list = list(op_maq_map.get(op_name_upper, []))
+                maquinas_str = ", ".join(sorted(maquinas_list)) if maquinas_list else "-"
+                
                 perf_val = row[c_perf]
                 perf_str = f"{perf_val:.2f}" if pd.notna(perf_val) else "-"
                 
-                pdf.cell(120, 8, clean_text(str(row[c_op_name])[:60]), border='B')
-                pdf.cell(60, 8, clean_text(perf_str), border='B', align='C', ln=True)
+                pdf.cell(70, 8, clean_text(op_name_orig[:35]), border='B')
+                pdf.cell(70, 8, clean_text(maquinas_str[:35]), border='B', align='C')
+                pdf.cell(50, 8, clean_text(perf_str), border='B', align='C', ln=True)
                 
             # Advertencia de promedio ponderado al final de la tabla
             if f_ini != f_fin:
@@ -587,7 +596,7 @@ def crear_pdf(area, f_ini, f_fin):
     return pdf_bytes
 
 # ==========================================
-# 6. BOTONES EN LA INTERFAZ PRINCIPAL
+# BOTONES EN LA INTERFAZ PRINCIPAL
 # ==========================================
 col1, col2 = st.columns(2)
 
