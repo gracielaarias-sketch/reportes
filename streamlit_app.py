@@ -136,7 +136,9 @@ class ReportePDF(FPDF):
 # ==========================================
 def clean_text(text):
     if pd.isna(text): return "-"
-    return str(text).encode('latin-1', 'replace').decode('latin-1')
+    # Convertimos a string y reemplazamos caracteres problemáticos por equivalentes en latin-1
+    text = str(text).replace('•', '-').replace('➤', '>')
+    return text.encode('latin-1', 'replace').decode('latin-1')
 
 def check_space(pdf, required_height):
     if pdf.get_y() + required_height > (pdf.h - 15):
@@ -288,10 +290,11 @@ def crear_pdf(area, f_ini, f_fin):
         avg_bano = df_pdf[df_pdf['Nivel Evento 4'].astype(str).str.contains('Baño', case=False, na=False)]['Tiempo (Min)'].mean()
         avg_refr = df_pdf[df_pdf['Nivel Evento 4'].astype(str).str.contains('Refrigerio', case=False, na=False)]['Tiempo (Min)'].mean()
         
-        pdf.cell(0, 6, clean_text(f"   • Promedio Baño: {avg_bano:.1f} min" if not pd.isna(avg_bano) else "   • Promedio Baño: Sin registros"), ln=True)
-        pdf.cell(0, 6, clean_text(f"   • Promedio Refrigerio: {avg_refr:.1f} min" if not pd.isna(avg_refr) else "   • Promedio Refrigerio: Sin registros"), ln=True)
+        # Aquí se aplicó el guion en lugar de la viñeta
+        pdf.cell(0, 6, clean_text(f"   - Promedio Baño: {avg_bano:.1f} min" if not pd.isna(avg_bano) else "   - Promedio Baño: Sin registros"), ln=True)
+        pdf.cell(0, 6, clean_text(f"   - Promedio Refrigerio: {avg_refr:.1f} min" if not pd.isna(avg_refr) else "   - Promedio Refrigerio: Sin registros"), ln=True)
     else:
-         pdf.cell(0, 6, clean_text("   • Sin datos de tiempos para el área y periodo."), ln=True)
+        pdf.cell(0, 6, clean_text("   - Sin datos de tiempos para el área y periodo."), ln=True)
     pdf.ln(3)
 
     pdf.set_font("Arial", 'B', 10)
@@ -299,7 +302,8 @@ def crear_pdf(area, f_ini, f_fin):
     lineas = ['L1', 'L2', 'L3', 'L4'] if area.upper() == 'ESTAMPADO' else ['CELDA', 'PRP']
     for l in lineas:
         m_l = get_metrics_pdf(l, df_oee_pdf)
-        print_pdf_metric_row(pdf, f"   ➤ {l} ", m_l)
+        # Aquí se aplicó el símbolo mayor que (>) en lugar de la flecha
+        print_pdf_metric_row(pdf, f"   > {l} ", m_l)
         
     if f_ini != f_fin:
         pdf.ln(1)
