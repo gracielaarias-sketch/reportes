@@ -15,7 +15,7 @@ st.set_page_config(
 )
 
 st.title("📄 Generador de Reportes PDF - FAMMA")
-st.markdown("Seleccione una fecha y descargue el informe con diseño mejorado.")
+st.markdown("Seleccione una fecha y descargue el informe.")
 
 # ==========================================
 # 2. CARGA DE DATOS ROBUSTA
