@@ -1,5 +1,5 @@
 streamlit
 pandas
 plotly
-kaleido==0.1.0.post1
+kaleido
 fpdf2
