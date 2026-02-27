@@ -353,7 +353,7 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
     metrics_area = get_metrics_direct(area, oee_target_df)
     print_pdf_metric_row(pdf, f"General {area.upper()}", metrics_area)
     
-    # AGREGADO: Promedio de Tiempos (Baño y Refrigerio)
+    # Promedio de Tiempos (Baño y Refrigerio)
     pdf.ln(2)
     pdf.set_font("Arial", 'B', 10)
     pdf.cell(0, 6, clean_text("Tiempos Promedio (por registro en el periodo):"), ln=True)
@@ -516,10 +516,95 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
         pdf.ln(5)
 
     # =========================================================
-    # 5. PERFORMANCE DE OPERARIOS 
+    # 5. HORARIOS DE OPERACIÓN POR MÁQUINA (NUEVO)
+    # =========================================================
+    col_inicio = next((c for c in df_pdf.columns if 'inicio' in c.lower() or 'desde' in c.lower()), None)
+    col_fin = next((c for c in df_pdf.columns if 'fin' in c.lower() or 'hasta' in c.lower()), None)
+
+    if col_inicio and col_fin and not df_pdf.empty:
+        check_space(pdf, 60)
+        print_section_title(pdf, "5. Horarios de Operacion por Maquina", theme_color)
+        
+        # Filtramos y limpiamos columnas de tiempo
+        df_t = df_pdf[['Fecha_Filtro', 'Máquina', col_inicio, col_fin]].copy()
+        df_t = df_t.dropna(subset=['Máquina'])
+        
+        # Convertimos las horas a formato de tiempo para operarlas matemáticamente
+        df_t['t_ini_dt'] = pd.to_datetime(df_t[col_inicio].astype(str), errors='coerce')
+        df_t['t_fin_dt'] = pd.to_datetime(df_t[col_fin].astype(str), errors='coerce')
+        df_t = df_t.dropna(subset=['t_ini_dt', 't_fin_dt'])
+
+        if not df_t.empty:
+            setup_table_header(pdf, theme_color)
+            pdf.set_font("Arial", 'B', 9)
+            pdf.cell(60, 7, clean_text("Maquina"), border=1, fill=True)
+
+            if p_tipo == "Diario":
+                pdf.cell(65, 7, clean_text("Horario de Inicio"), border=1, align='C', fill=True)
+                pdf.cell(65, 7, clean_text("Horario de Cierre"), border=1, align='C', ln=True, fill=True)
+
+                # Agrupamos por máquina (mínimo inicio, máximo fin en el día)
+                df_grouped_time = df_t.groupby('Máquina').agg(
+                    ini_val=('t_ini_dt', 'min'),
+                    fin_val=('t_fin_dt', 'max')
+                ).reset_index()
+
+            else:
+                pdf.cell(65, 7, clean_text("Horario Promedio Inicio"), border=1, align='C', fill=True)
+                pdf.cell(65, 7, clean_text("Horario Promedio Cierre"), border=1, align='C', ln=True, fill=True)
+
+                # Para semanal/mensual: primero min/max por cada día
+                df_daily = df_t.groupby(['Máquina', 'Fecha_Filtro']).agg(
+                    ini_min=('t_ini_dt', 'min'),
+                    fin_max=('t_fin_dt', 'max')
+                ).reset_index()
+
+                # Convertimos a segundos desde la medianoche para poder sacar un promedio real
+                df_daily['ini_sec'] = df_daily['ini_min'].dt.hour * 3600 + df_daily['ini_min'].dt.minute * 60
+                df_daily['fin_sec'] = df_daily['fin_max'].dt.hour * 3600 + df_daily['fin_max'].dt.minute * 60
+
+                # Compensación por si cruzan la medianoche (turnos nocturnos)
+                df_daily.loc[df_daily['fin_sec'] < df_daily['ini_sec'], 'fin_sec'] += 24 * 3600
+
+                # Promediamos esos segundos
+                df_grouped_time = df_daily.groupby('Máquina').agg(
+                    ini_sec_mean=('ini_sec', 'mean'),
+                    fin_sec_mean=('fin_sec', 'mean')
+                ).reset_index()
+
+                # Función para volver de segundos a "HH:MM"
+                def sec_to_time(sec):
+                    if pd.isna(sec): return "-"
+                    sec = int(sec) % (24 * 3600)  # Normalizamos para que no exceda 24hs
+                    return f"{sec // 3600:02d}:{(sec % 3600) // 60:02d}"
+
+                df_grouped_time['ini_str'] = df_grouped_time['ini_sec_mean'].apply(sec_to_time)
+                df_grouped_time['fin_str'] = df_grouped_time['fin_sec_mean'].apply(sec_to_time)
+
+            setup_table_row(pdf)
+            pdf.set_font("Arial", '', 9)
+            df_grouped_time = df_grouped_time.sort_values('Máquina')
+
+            for _, row in df_grouped_time.iterrows():
+                pdf.cell(60, 7, clean_text(str(row['Máquina'])[:30]), border='B')
+
+                if p_tipo == "Diario":
+                    val_ini = row['ini_val'].strftime('%H:%M') if pd.notna(row['ini_val']) else "-"
+                    val_fin = row['fin_val'].strftime('%H:%M') if pd.notna(row['fin_val']) else "-"
+                else:
+                    val_ini = row['ini_str']
+                    val_fin = row['fin_str']
+
+                pdf.cell(65, 7, clean_text(val_ini), border='B', align='C')
+                pdf.cell(65, 7, clean_text(val_fin), border='B', align='C', ln=True)
+
+            pdf.ln(5)
+
+    # =========================================================
+    # 6. PERFORMANCE DE OPERARIOS 
     # =========================================================
     check_space(pdf, 60)
-    print_section_title(pdf, "5. Performance de Operarios y Maquinas", theme_color)
+    print_section_title(pdf, "6. Performance de Operarios y Maquinas", theme_color)
     pdf.set_font("Arial", 'I', 10)
     pdf.set_text_color(100, 100, 100)
     pdf.cell(0, 6, clean_text("Cuadro de performance y maquinas por operario."), ln=True)
@@ -536,7 +621,7 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
             col_area = op_target_df.columns[1] if len(op_target_df.columns) > 1 else None
         
         if col_perf and col_area:
-            # 1. Mapeo de máquinas a operarios buscando en df_prod_pdf (columnas O a T)
+            # Mapeo de máquinas a operarios buscando en df_prod_pdf (columnas O a T)
             op_maq_map = {}
             if not df_prod_pdf.empty:
                 col_maq_prod = next((c for c in df_prod_pdf.columns if 'máquina' in c.lower() or 'maquina' in c.lower()), None)
@@ -553,7 +638,7 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
                                     if op not in op_maq_map: op_maq_map[op] = set()
                                     op_maq_map[op].add(maq)
 
-            # 2. Forzar valores de performance a número entero
+            # Forzar valores de performance a número entero
             op_target_df['Perf_Clean'] = pd.to_numeric(op_target_df[col_perf].astype(str).str.replace('%', '').str.replace(',', '.'), errors='coerce').fillna(0)
             if op_target_df['Perf_Clean'].mean() <= 1.5 and op_target_df['Perf_Clean'].mean() > 0:
                 op_target_df['Perf_Clean'] = op_target_df['Perf_Clean'] * 100
