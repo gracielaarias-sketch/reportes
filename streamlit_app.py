@@ -22,7 +22,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. CARGA DE DATOS ROBUSTA (8 HOJAS)
+# 2. CARGA DE DATOS ROBUSTA
 # ==========================================
 @st.cache_data(ttl=300)
 def load_data():
@@ -33,25 +33,23 @@ def load_data():
             st.error("⚠️ No se encontró la configuración de secretos (.streamlit/secrets.toml).")
             return [pd.DataFrame()] * 8
 
-        # GIDs Originales
         gid_datos = "0"
         gid_oee_diario = "1767654796"
         gid_prod = "315437448"
-        gid_operarios = "354131379"
+        gid_op_diario = "354131379"
         gid_oee_sem = "2079886194"
         gid_oee_men = "1696631148"
-        
-        # NUEVOS GIDs para Operarios
         gid_op_sem = "2038636509"
         gid_op_men = "1171574188"
         
         base_export = url_base.split("/edit")[0] + "/export?format=csv&gid="
         
-        def process_df(url):
+        def process_df(url, is_daily=False):
             try:
                 df = pd.read_csv(url)
             except Exception: return pd.DataFrame()
             
+            # Limpieza de numéricos
             cols_num = ['Tiempo (Min)', 'Buenas', 'Retrabajo', 'Observadas', 'OEE', 'Disponibilidad', 'Performance', 'Calidad', 'Eficiencia']
             for c in cols_num:
                 matches = [col for col in df.columns if c.lower() in col.lower()]
@@ -60,28 +58,29 @@ def load_data():
                     df[match] = df[match].str.replace('%', '')
                     df[match] = pd.to_numeric(df[match], errors='coerce').fillna(0.0)
             
+            # Limpieza de fechas SOLO si es reporte diario (para no borrar las hojas de semana/mes)
             col_fecha = next((c for c in df.columns if 'fecha' in c.lower() and 'inicio' not in c.lower() and 'fin' not in c.lower()), None)
             if col_fecha:
                 df['Fecha_DT'] = pd.to_datetime(df[col_fecha], dayfirst=True, errors='coerce')
                 df['Fecha_Filtro'] = df['Fecha_DT'].dt.normalize()
-                df = df.dropna(subset=['Fecha_Filtro'])
+                if is_daily:
+                    df = df.dropna(subset=['Fecha_Filtro'])
             
-            cols_texto = ['Fábrica', 'Máquina', 'Evento', 'Código', 'Operador', 'Nivel Evento 3', 'Nivel Evento 4', 'Nivel Evento 6', 'Nombre', 'Inicio', 'Fin', 'Desde', 'Hasta', 'Semana', 'Mes']
-            for c_txt in cols_texto:
-                matches = [col for col in df.columns if c_txt.lower() in col.lower() and df[col].dtype == 'object']
-                for match in matches:
-                    df[match] = df[match].fillna('').astype(str)
+            # Limpieza de textos (quitar espacios en blanco que arruinan los filtros)
+            for col in df.columns:
+                if df[col].dtype == 'object':
+                    df[col] = df[col].fillna('').astype(str).str.strip()
             return df
 
         return (
-            process_df(base_export + gid_datos), 
-            process_df(base_export + gid_oee_diario), 
-            process_df(base_export + gid_prod), 
-            process_df(base_export + gid_operarios),
-            process_df(base_export + gid_oee_sem),
-            process_df(base_export + gid_oee_men),
-            process_df(base_export + gid_op_sem),
-            process_df(base_export + gid_op_men)
+            process_df(base_export + gid_datos, is_daily=True), 
+            process_df(base_export + gid_oee_diario, is_daily=True), 
+            process_df(base_export + gid_prod, is_daily=True), 
+            process_df(base_export + gid_op_diario, is_daily=True),
+            process_df(base_export + gid_oee_sem, is_daily=False),
+            process_df(base_export + gid_oee_men, is_daily=False),
+            process_df(base_export + gid_op_sem, is_daily=False),
+            process_df(base_export + gid_op_men, is_daily=False)
         )
     except Exception as e:
         st.error(f"Error cargando datos: {e}")
@@ -125,13 +124,19 @@ with col_p2:
     elif pdf_tipo == "Semanal":
         if not df_oee_sem.empty:
             col_sem = df_oee_sem.columns[0]
-            opciones_sem = [s for s in df_oee_sem[col_sem].unique() if s.strip() != ""]
+            opciones_sem = [s for s in df_oee_sem[col_sem].unique() if s.strip() != "" and str(s).lower() != "nan"]
             pdf_sem = st.selectbox("Semana para PDF:", opciones_sem)
             
-            pdf_df_oee_target = df_oee_sem[df_oee_sem[col_sem] == pdf_sem]
-            pdf_df_op_target = df_op_sem_raw[df_op_sem_raw[df_op_sem_raw.columns[0]] == pdf_sem] if not df_op_sem_raw.empty else pd.DataFrame()
+            # Filtro exacto (convertido a string)
+            pdf_df_oee_target = df_oee_sem[df_oee_sem[col_sem].astype(str) == str(pdf_sem)]
+            
+            col_sem_op = df_op_sem_raw.columns[0] if not df_op_sem_raw.empty else None
+            if col_sem_op:
+                pdf_df_op_target = df_op_sem_raw[df_op_sem_raw[col_sem_op].astype(str) == str(pdf_sem)]
+                
             pdf_label = f"Semana {pdf_sem}"
             
+            # Intentar rescatar las fechas de inicio y fin para los gráficos de fallas/producción
             col_ini_p = next((c for c in pdf_df_oee_target.columns if 'inicio' in c.lower()), None)
             col_fin_p = next((c for c in pdf_df_oee_target.columns if 'fin' in c.lower()), None)
             if col_ini_p and col_fin_p and not pdf_df_oee_target.empty:
@@ -143,11 +148,15 @@ with col_p2:
     elif pdf_tipo == "Mensual":
         if not df_oee_men.empty:
             col_mes = df_oee_men.columns[0]
-            opciones_mes = [m for m in df_oee_men[col_mes].unique() if m.strip() != ""]
+            opciones_mes = [m for m in df_oee_men[col_mes].unique() if m.strip() != "" and str(m).lower() != "nan"]
             pdf_mes = st.selectbox("Mes para PDF:", opciones_mes)
             
-            pdf_df_oee_target = df_oee_men[df_oee_men[col_mes] == pdf_mes]
-            pdf_df_op_target = df_op_men_raw[df_op_men_raw[df_op_men_raw.columns[0]] == pdf_mes] if not df_op_men_raw.empty else pd.DataFrame()
+            pdf_df_oee_target = df_oee_men[df_oee_men[col_mes].astype(str) == str(pdf_mes)]
+            
+            col_mes_op = df_op_men_raw.columns[0] if not df_op_men_raw.empty else None
+            if col_mes_op:
+                pdf_df_op_target = df_op_men_raw[df_op_men_raw[col_mes_op].astype(str) == str(pdf_mes)]
+                
             pdf_label = f"Mes {pdf_mes}"
             
             col_ini_p = next((c for c in pdf_df_oee_target.columns if 'inicio' in c.lower()), None)
@@ -167,15 +176,18 @@ def get_metrics_direct(name_filter, target_df):
     m = {'OEE': 0.0, 'DISP': 0.0, 'PERF': 0.0, 'CAL': 0.0}
     if target_df.empty: return m
     
-    mask = target_df.apply(lambda row: row.astype(str).str.upper().str.contains(name_filter.upper()).any(), axis=1)
-    datos = target_df[mask]
+    # Busca la fila donde alguna columna contenga el nombre del área
+    mask = target_df.apply(lambda row: row.astype(str).str.upper().str.contains(name_filter.upper()), axis=1)
+    datos = target_df[mask.any(axis=1)]
     
     if not datos.empty:
         fila = datos.iloc[0] 
-        for key, col_search in {'OEE':'OEE', 'DISP':'Disponibilidad', 'PERF':'Performance', 'CAL':'Calidad'}.items():
-            actual_col = next((c for c in datos.columns if col_search.lower() in c.lower()), None)
+        # Busca dinámicamente las columnas de métricas
+        for key, col_search in {'OEE':['OEE'], 'DISP':['DISPONIBILIDAD', 'DISP'], 'PERF':['PERFORMANCE', 'PERFO'], 'CAL':['CALIDAD', 'CAL']}.items():
+            actual_col = next((c for c in datos.columns if any(x in c.upper() for x in col_search)), None)
             if actual_col:
-                v = pd.to_numeric(fila[actual_col], errors='coerce')
+                val_str = str(fila[actual_col]).replace('%', '').replace(',', '.').strip()
+                v = pd.to_numeric(val_str, errors='coerce')
                 if pd.notna(v): m[key] = float(v/100 if v > 1.1 else v)
     return m
 
@@ -372,48 +384,21 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
         pdf.cell(0, 8, clean_text("No hay datos de producción para este período."), ln=True)
     pdf.ln(5)
 
-    # 5. TIEMPOS POR OPERARIO
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 10, clean_text("5. Tiempos por Operario"), ln=True)
-    if not df_pdf.empty:
-        op_tiempos = df_pdf.groupby('Operador')['Tiempo (Min)'].sum().reset_index().sort_values('Tiempo (Min)', ascending=False)
-        
-        fig_op = px.bar(op_tiempos, x='Operador', y='Tiempo (Min)', color='Tiempo (Min)', color_continuous_scale='Blues', text='Tiempo (Min)')
-        fig_op.update_traces(texttemplate='%{text:.1f}', textposition='outside', cliponaxis=False)
-        fig_op.update_layout(width=800, height=450, margin=dict(t=80, b=150, l=40, r=40))
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile4:
-            fig_op.write_image(tmpfile4.name, engine="kaleido")
-            pdf.image(tmpfile4.name, w=170)
-            os.remove(tmpfile4.name)
-            
-        pdf.ln(5)
-        pdf.set_font("Arial", 'B', 10)
-        pdf.cell(0, 8, clean_text("Resumen de Tiempos:"), ln=True)
-        pdf.set_font("Arial", 'B', 8)
-        pdf.cell(100, 8, clean_text("Operador"), border=1)
-        pdf.cell(50, 8, clean_text("Tiempo Total (Min)"), border=1, align='C', ln=True)
-        pdf.set_font("Arial", '', 8)
-        for _, row in op_tiempos.iterrows():
-            pdf.cell(100, 8, clean_text(str(row['Operador'])[:50]), border=1)
-            pdf.cell(50, 8, clean_text(f"{row['Tiempo (Min)']:.1f}"), border=1, align='C', ln=True)
-    pdf.ln(5)
-    
     # =========================================================
-    # 6. TABLA INDEPENDIENTE: PERFORMANCE DE OPERARIOS (AMBAS)
+    # 5. PERFORMANCE DE OPERARIOS (Ambas Áreas)
     # =========================================================
     pdf.add_page()
     pdf.set_font("Arial", 'B', 14)
-    pdf.cell(0, 10, clean_text(f"6. Performance de Operarios ({label_reporte})"), ln=True)
+    pdf.cell(0, 10, clean_text(f"5. Performance de Operarios ({label_reporte})"), ln=True)
     pdf.set_font("Arial", 'I', 10)
     pdf.cell(0, 6, clean_text("Los siguientes cuadros resumen el desempeño de ambos sectores, tomados directamente de los registros."), ln=True)
     pdf.ln(5)
     
     if not op_target_df.empty:
-        # Extraer nombres del Operador
+        # Nombre del operador suele estar en la columna B o A
         col_op = next((c for c in op_target_df.columns if 'operador' in c.lower() or 'nombre' in c.lower()), op_target_df.columns[1] if len(op_target_df.columns)>1 else op_target_df.columns[0])
         
-        # Mapear las columnas exactas según si es Diario o Semanal/Mensual
+        # Mapeo exacto solicitado
         if p_tipo == "Diario":
             col_perf = op_target_df.columns[5] if len(op_target_df.columns) > 5 else None # Columna F
             col_area = op_target_df.columns[14] if len(op_target_df.columns) > 14 else None # Columna O
@@ -424,18 +409,18 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
             col_maq = None
         
         if col_perf and col_area:
-            # Limpiar performance a numérico
+            # Forzar valores de performance a número entero
             op_target_df['Perf_Clean'] = pd.to_numeric(op_target_df[col_perf].astype(str).str.replace('%', '').str.replace(',', '.'), errors='coerce').fillna(0)
             if op_target_df['Perf_Clean'].mean() <= 1.5 and op_target_df['Perf_Clean'].mean() > 0:
                 op_target_df['Perf_Clean'] = op_target_df['Perf_Clean'] * 100
             op_target_df['Perf_Int'] = op_target_df['Perf_Clean'].round().astype(int)
             
-            # Agrupar si es Diario (para incluir máquinas sin duplicar al operario)
+            # Agrupar si es reporte Diario (por si el operador estuvo en más de una máquina)
             if p_tipo == "Diario":
                 if col_maq:
                     df_grouped = op_target_df.groupby([col_op, col_area]).agg(
                         Perf_Int=('Perf_Int', 'mean'),
-                        Maquinas=(col_maq, lambda x: ', '.join(x.dropna().unique()))
+                        Maquinas=(col_maq, lambda x: ', '.join([str(i) for i in x.dropna().unique() if str(i).strip() != '']))
                     ).reset_index()
                 else:
                     df_grouped = op_target_df.groupby([col_op, col_area]).agg(
@@ -446,11 +431,11 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
             else:
                 df_grouped = op_target_df.copy()
             
-            # Separar por área usando la columna correspondiente
+            # Separar Estampado y Soldadura
             df_est = df_grouped[df_grouped[col_area].astype(str).str.contains('ESTAMPADO', case=False, na=False)].sort_values('Perf_Int', ascending=False)
             df_sol = df_grouped[df_grouped[col_area].astype(str).str.contains('SOLDADURA', case=False, na=False)].sort_values('Perf_Int', ascending=False)
             
-            # Función para imprimir cuadro de performance
+            # Subfunción para dibujar los cuadros
             def imprimir_cuadro_perfo(titulo, df_seccion, is_daily):
                 pdf.set_font("Arial", 'B', 12)
                 pdf.cell(0, 8, clean_text(titulo), ln=True)
@@ -484,10 +469,10 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
                         else: pdf.set_text_color(220, 20, 20)
                         
                         pdf.cell(40, 8, clean_text(str(perf_val) + "%"), border=1, align='C', ln=True)
-                        pdf.set_text_color(0, 0, 0) # Reset
+                        pdf.set_text_color(0, 0, 0)
                 pdf.ln(5)
                 
-            # Imprimir AMBOS cuadros siempre, sin importar el área general del PDF
+            # Dibuja siempre ambos cuadros al final del PDF
             imprimir_cuadro_perfo("🗜️ Operarios ESTAMPADO", df_est, p_tipo == "Diario")
             imprimir_cuadro_perfo("⚡ Operarios SOLDADURA", df_sol, p_tipo == "Diario")
             
@@ -498,7 +483,7 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
         pdf.set_font("Arial", '', 10)
         pdf.cell(0, 8, clean_text("No hay registros de performance de operarios para el período seleccionado."), ln=True)
 
-    # FINALIZAR Y GUARDAR PDF
+    # FINALIZAR Y GUARDAR
     temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     pdf.output(temp_pdf.name)
     with open(temp_pdf.name, "rb") as f: pdf_bytes = f.read()
