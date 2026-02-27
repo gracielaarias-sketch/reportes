@@ -523,7 +523,7 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
 
     if col_inicio and col_fin and not df_pdf.empty:
         check_space(pdf, 60)
-        print_section_title(pdf, "5. Horarios de Operacion por Maquina", theme_color)
+        print_section_title(pdf, "5. Horarios de Apertura por Maquina", theme_color)
         
         # Filtramos y limpiamos columnas de tiempo
         df_t = df_pdf[['Fecha_Filtro', 'Máquina', col_inicio, col_fin]].copy()
