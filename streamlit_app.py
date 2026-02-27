@@ -522,7 +522,7 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
     print_section_title(pdf, "5. Performance de Operarios y Maquinas", theme_color)
     pdf.set_font("Arial", 'I', 10)
     pdf.set_text_color(100, 100, 100)
-    pdf.cell(0, 6, clean_text("Cuadro de desempeno y maquinas operadas en el sector."), ln=True)
+    pdf.cell(0, 6, clean_text("Cuadro de performance y maquinas por operario."), ln=True)
     pdf.ln(3)
     
     if not op_target_df.empty:
