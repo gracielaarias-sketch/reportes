@@ -171,6 +171,12 @@ with col_p2:
         else:
             st.warning("No hay datos mensuales.")
 
+with col_p3:
+    st.write("**3. Generar y Descargar:**")
+    col_btn1, col_btn2 = st.columns(2)
+
+st.divider()
+
 # ==========================================
 # 4. CLASE PDF Y FUNCIONES DE ESTILO
 # ==========================================
@@ -441,6 +447,8 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
         pdf.set_text_color(100, 100, 100)
         pdf.cell(0, 7, clean_text("No se registraron fallas en este periodo."), ln=True)
 
+    pdf.ln(5)
+
     # 3. PRODUCCIÓN VS PARADA
     if not df_pdf.empty:
         check_space(pdf, 70)
@@ -496,13 +504,13 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
         pdf.ln(5)
 
     # =========================================================
-    # 5. PERFORMANCE DE OPERARIOS (Máquinas exactas desde hoja Producción)
+    # 5. PERFORMANCE DE OPERARIOS 
     # =========================================================
     check_space(pdf, 60)
     print_section_title(pdf, "5. Performance de Operarios y Maquinas", theme_color)
     pdf.set_font("Arial", 'I', 10)
     pdf.set_text_color(100, 100, 100)
-    pdf.cell(0, 6, clean_text("Cuadros de desempeno y maquinas operadas en ambos sectores."), ln=True)
+    pdf.cell(0, 6, clean_text("Cuadro de desempeno y maquinas operadas en el sector."), ln=True)
     pdf.ln(3)
     
     if not op_target_df.empty:
@@ -516,7 +524,7 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
             col_area = op_target_df.columns[1] if len(op_target_df.columns) > 1 else None
         
         if col_perf and col_area:
-            # 1. Mapeo de máquinas a operarios buscando en df_prod_pdf (columnas 14 a 19 correspondientes a O hasta T)
+            # 1. Mapeo de máquinas a operarios buscando en df_prod_pdf (columnas O a T)
             op_maq_map = {}
             if not df_prod_pdf.empty:
                 col_maq_prod = next((c for c in df_prod_pdf.columns if 'máquina' in c.lower() or 'maquina' in c.lower()), None)
@@ -547,7 +555,7 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
                 lambda x: ', '.join(sorted(op_maq_map.get(x, []))) if op_maq_map.get(x) else '-'
             )
 
-            # Si es Diario agrupamos para que no salga repetido el operador en la lista final
+            # Si es Diario agrupamos
             if p_tipo == "Diario":
                 df_grouped = df_grouped.groupby(['Op_Upper', col_op, col_area, 'Maquinas']).agg(Perf_Int=('Perf_Int', 'mean')).reset_index()
                 df_grouped['Perf_Int'] = df_grouped['Perf_Int'].round().astype(int)
@@ -598,8 +606,11 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
                         pdf.set_font("Arial", '', 9)
                 pdf.ln(5)
                 
-            imprimir_cuadro_perfo("Operarios ESTAMPADO", df_est, (41, 128, 185)) 
-            imprimir_cuadro_perfo("Operarios SOLDADURA", df_sol, (211, 84, 0)) 
+            # IMPRIMIR SÓLO EL ÁREA CORRESPONDIENTE
+            if area.upper() == "ESTAMPADO":
+                imprimir_cuadro_perfo("Operarios ESTAMPADO", df_est, (41, 128, 185)) 
+            elif area.upper() == "SOLDADURA":
+                imprimir_cuadro_perfo("Operarios SOLDADURA", df_sol, (211, 84, 0)) 
             
         else:
             pdf.set_font("Arial", '', 10)
@@ -620,8 +631,6 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
 # 6. BOTONES DE EXPORTACIÓN EN PANTALLA
 # ==========================================
 with col_p3:
-    st.write("**3. Generar y Descargar:**")
-    col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
         if st.button("Preparar Reporte ESTAMPADO", use_container_width=True):
             with st.spinner("Construyendo documento PDF..."):
