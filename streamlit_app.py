@@ -171,12 +171,6 @@ with col_p2:
         else:
             st.warning("No hay datos mensuales.")
 
-with col_p3:
-    st.write("**3. Generar y Descargar:**")
-    col_btn1, col_btn2 = st.columns(2)
-
-st.divider()
-
 # ==========================================
 # 4. CLASE PDF Y FUNCIONES DE ESTILO
 # ==========================================
@@ -353,13 +347,31 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
     redactar_resumen_ejecutivo(pdf, area, df_pdf, oee_target_df)
 
     # 1. OEE
-    check_space(pdf, 50)
+    check_space(pdf, 65)
     print_section_title(pdf, "1. Resumen General y OEE", theme_color)
     
     metrics_area = get_metrics_direct(area, oee_target_df)
     print_pdf_metric_row(pdf, f"General {area.upper()}", metrics_area)
     
+    # AGREGADO: Promedio de Tiempos (Baño y Refrigerio)
     pdf.ln(2)
+    pdf.set_font("Arial", 'B', 10)
+    pdf.cell(0, 6, clean_text("Tiempos Promedio (por registro en el periodo):"), ln=True)
+    pdf.set_font("Arial", '', 10)
+    
+    if not df_pdf.empty:
+        avg_bano = df_pdf[df_pdf['Nivel Evento 4'].astype(str).str.contains('Baño', case=False, na=False)]['Tiempo (Min)'].mean()
+        avg_refr = df_pdf[df_pdf['Nivel Evento 4'].astype(str).str.contains('Refrigerio', case=False, na=False)]['Tiempo (Min)'].mean()
+        
+        str_bano = f"   - Promedio Bano: {avg_bano:.1f} min" if pd.notna(avg_bano) else "   - Promedio Bano: Sin registros"
+        str_refr = f"   - Promedio Refrigerio: {avg_refr:.1f} min" if pd.notna(avg_refr) else "   - Promedio Refrigerio: Sin registros"
+        
+        pdf.cell(0, 6, clean_text(str_bano), ln=True)
+        pdf.cell(0, 6, clean_text(str_refr), ln=True)
+    else:
+        pdf.cell(0, 6, clean_text("   - Sin datos de tiempos para el area y periodo."), ln=True)
+    
+    pdf.ln(3)
     pdf.set_font("Arial", 'B', 10)
     pdf.cell(0, 6, clean_text("Detalle OEE por Maquina/Linea:"), ln=True)
     lineas = ['L1', 'L2', 'L3', 'L4'] if area.upper() == 'ESTAMPADO' else ['CELDA', 'PRP']
@@ -631,6 +643,8 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
 # 6. BOTONES DE EXPORTACIÓN EN PANTALLA
 # ==========================================
 with col_p3:
+    st.write("**3. Generar y Descargar:**")
+    col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
         if st.button("Preparar Reporte ESTAMPADO", use_container_width=True):
             with st.spinner("Construyendo documento PDF..."):
