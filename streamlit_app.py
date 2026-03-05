@@ -383,31 +383,80 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
     # 2. Análisis de Fallas
     df_fallas_area = df_pdf[df_pdf['Nivel Evento 3'].astype(str).str.contains('FALLA', case=False)]
     if not df_fallas_area.empty:
-        check_space(pdf, 85)
+        check_space(pdf, 100)
         print_section_title(pdf, "2. Analisis de Fallas (Diagrama Pareto)", theme_color)
         
-        top_fallas = df_fallas_area.groupby('Nivel Evento 6')['Tiempo (Min)'].sum().reset_index().sort_values('Tiempo (Min)', ascending=False).head(10)
+        # Agrupamos por Falla y aglomeramos las máquinas únicas involucradas
+        top_fallas = df_fallas_area.groupby('Nivel Evento 6').agg({
+            'Tiempo (Min)': 'sum',
+            'Máquina': lambda x: ', '.join(x.dropna().unique())
+        }).reset_index()
+        
+        # Ordenamos y calculamos acumulados
+        top_fallas = top_fallas.sort_values('Tiempo (Min)', ascending=False).head(10)
         top_fallas['% Acumulado'] = (top_fallas['Tiempo (Min)'].cumsum() / top_fallas['Tiempo (Min)'].sum()) * 100
+        
+        # Etiqueta combinada para el gráfico (Falla + Máquinas)
+        top_fallas['Falla_Label'] = top_fallas['Nivel Evento 6'].astype(str) + '<br>(' + top_fallas['Máquina'].astype(str) + ')'
         
         fig_pareto = make_subplots(specs=[[{"secondary_y": True}]])
         fig_pareto.add_trace(
-            go.Bar(x=top_fallas['Nivel Evento 6'], y=top_fallas['Tiempo (Min)'], name='Minutos', marker_color=hex_theme, text=top_fallas['Tiempo (Min)'].round(1), textposition='outside'),
+            go.Bar(x=top_fallas['Falla_Label'], y=top_fallas['Tiempo (Min)'], name='Minutos', marker_color=hex_theme, text=top_fallas['Tiempo (Min)'].round(1), textposition='outside'),
             secondary_y=False,
         )
         fig_pareto.add_trace(
-            go.Scatter(x=top_fallas['Nivel Evento 6'], y=top_fallas['% Acumulado'], name='% Acum', mode='lines+markers', line=dict(color='red', width=3)),
+            go.Scatter(x=top_fallas['Falla_Label'], y=top_fallas['% Acumulado'], name='% Acum', mode='lines+markers', line=dict(color='red', width=3)),
             secondary_y=True,
         )
-        fig_pareto.update_layout(width=800, height=350, margin=dict(t=30, b=80, l=30, r=30), plot_bgcolor='rgba(0,0,0,0)', showlegend=False)
+        
+        # Ajustamos layout: más altura y más margen inferior para leer etiquetas completas
+        fig_pareto.update_layout(width=800, height=480, margin=dict(t=30, b=160, l=30, r=30), plot_bgcolor='rgba(0,0,0,0)', showlegend=False)
         fig_pareto.update_yaxes(title_text="Minutos", secondary_y=False)
         fig_pareto.update_yaxes(title_text="% Acum", range=[0, 105], secondary_y=True)
+        fig_pareto.update_xaxes(tickangle=35) # Le damos inclinación al texto
         
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
             fig_pareto.write_image(tmpfile.name, engine="kaleido")
             pdf.image(tmpfile.name, w=155)
             os.remove(tmpfile.name)
         
-        pdf.ln(3)
+        pdf.ln(5)
+        
+        # =========================================================
+        # NUEVO: CUADRO RESUMEN DE TIEMPO POR MÁQUINA
+        # =========================================================
+        check_space(pdf, 40)
+        pdf.set_font("Arial", 'B', 10)
+        pdf.set_text_color(*theme_color)
+        pdf.cell(0, 7, clean_text("Tiempos Totales: Produccion vs Parada por Maquina"), ln=True)
+        
+        df_resumen_t = df_pdf.copy()
+        df_resumen_t['Tipo_Cat'] = df_resumen_t['Evento'].apply(lambda x: 'Producción' if 'Producción' in str(x) else 'Parada')
+        df_maq_t = df_resumen_t.groupby(['Máquina', 'Tipo_Cat'])['Tiempo (Min)'].sum().unstack(fill_value=0).reset_index()
+        
+        if 'Producción' not in df_maq_t.columns: df_maq_t['Producción'] = 0
+        if 'Parada' not in df_maq_t.columns: df_maq_t['Parada'] = 0
+        df_maq_t['Total'] = df_maq_t['Producción'] + df_maq_t['Parada']
+        df_maq_t = df_maq_t.sort_values('Total', ascending=False)
+        
+        setup_table_header(pdf, theme_color)
+        pdf.set_font("Arial", 'B', 9)
+        pdf.cell(50, 7, clean_text("Maquina"), border=1, fill=True)
+        pdf.cell(40, 7, clean_text("Tiempo Prod. (Min)"), border=1, align='C', fill=True)
+        pdf.cell(40, 7, clean_text("Tiempo Parada (Min)"), border=1, align='C', fill=True)
+        pdf.cell(40, 7, clean_text("Tiempo Total (Min)"), border=1, align='C', ln=True, fill=True)
+        
+        setup_table_row(pdf)
+        pdf.set_font("Arial", '', 9)
+        for _, r in df_maq_t.iterrows():
+            pdf.cell(50, 7, clean_text(str(r['Máquina'])[:25]), border='B')
+            pdf.cell(40, 7, clean_text(f"{r['Producción']:.1f}"), border='B', align='C')
+            pdf.cell(40, 7, clean_text(f"{r['Parada']:.1f}"), border='B', align='C')
+            pdf.cell(40, 7, clean_text(f"{r['Total']:.1f}"), border='B', align='C', ln=True)
+        
+        pdf.ln(5)
+        # =========================================================
+        
         check_space(pdf, 25)
         pdf.set_font("Arial", 'B', 10)
         pdf.set_text_color(*theme_color)
@@ -516,7 +565,7 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
         pdf.ln(5)
 
     # =========================================================
-    # 5. HORARIOS DE OPERACIÓN POR MÁQUINA (NUEVO)
+    # 5. HORARIOS DE OPERACIÓN POR MÁQUINA
     # =========================================================
     col_inicio = next((c for c in df_pdf.columns if 'inicio' in c.lower() or 'desde' in c.lower()), None)
     col_fin = next((c for c in df_pdf.columns if 'fin' in c.lower() or 'hasta' in c.lower()), None)
@@ -525,11 +574,9 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
         check_space(pdf, 60)
         print_section_title(pdf, "5. Horarios de Apertura por Maquina", theme_color)
         
-        # Filtramos y limpiamos columnas de tiempo
         df_t = df_pdf[['Fecha_Filtro', 'Máquina', col_inicio, col_fin]].copy()
         df_t = df_t.dropna(subset=['Máquina'])
         
-        # Convertimos las horas a formato de tiempo para operarlas matemáticamente
         df_t['t_ini_dt'] = pd.to_datetime(df_t[col_inicio].astype(str), errors='coerce')
         df_t['t_fin_dt'] = pd.to_datetime(df_t[col_fin].astype(str), errors='coerce')
         df_t = df_t.dropna(subset=['t_ini_dt', 't_fin_dt'])
@@ -543,7 +590,6 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
                 pdf.cell(65, 7, clean_text("Horario de Inicio"), border=1, align='C', fill=True)
                 pdf.cell(65, 7, clean_text("Horario de Cierre"), border=1, align='C', ln=True, fill=True)
 
-                # Agrupamos por máquina (mínimo inicio, máximo fin en el día)
                 df_grouped_time = df_t.groupby('Máquina').agg(
                     ini_val=('t_ini_dt', 'min'),
                     fin_val=('t_fin_dt', 'max')
@@ -553,29 +599,24 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
                 pdf.cell(65, 7, clean_text("Horario Promedio Inicio"), border=1, align='C', fill=True)
                 pdf.cell(65, 7, clean_text("Horario Promedio Cierre"), border=1, align='C', ln=True, fill=True)
 
-                # Para semanal/mensual: primero min/max por cada día
                 df_daily = df_t.groupby(['Máquina', 'Fecha_Filtro']).agg(
                     ini_min=('t_ini_dt', 'min'),
                     fin_max=('t_fin_dt', 'max')
                 ).reset_index()
 
-                # Convertimos a segundos desde la medianoche para poder sacar un promedio real
                 df_daily['ini_sec'] = df_daily['ini_min'].dt.hour * 3600 + df_daily['ini_min'].dt.minute * 60
                 df_daily['fin_sec'] = df_daily['fin_max'].dt.hour * 3600 + df_daily['fin_max'].dt.minute * 60
 
-                # Compensación por si cruzan la medianoche (turnos nocturnos)
                 df_daily.loc[df_daily['fin_sec'] < df_daily['ini_sec'], 'fin_sec'] += 24 * 3600
 
-                # Promediamos esos segundos
                 df_grouped_time = df_daily.groupby('Máquina').agg(
                     ini_sec_mean=('ini_sec', 'mean'),
                     fin_sec_mean=('fin_sec', 'mean')
                 ).reset_index()
 
-                # Función para volver de segundos a "HH:MM"
                 def sec_to_time(sec):
                     if pd.isna(sec): return "-"
-                    sec = int(sec) % (24 * 3600)  # Normalizamos para que no exceda 24hs
+                    sec = int(sec) % (24 * 3600)  
                     return f"{sec // 3600:02d}:{(sec % 3600) // 60:02d}"
 
                 df_grouped_time['ini_str'] = df_grouped_time['ini_sec_mean'].apply(sec_to_time)
@@ -621,7 +662,6 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
             col_area = op_target_df.columns[1] if len(op_target_df.columns) > 1 else None
         
         if col_perf and col_area:
-            # Mapeo de máquinas a operarios buscando en df_prod_pdf (columnas O a T)
             op_maq_map = {}
             if not df_prod_pdf.empty:
                 col_maq_prod = next((c for c in df_prod_pdf.columns if 'máquina' in c.lower() or 'maquina' in c.lower()), None)
@@ -638,7 +678,6 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
                                     if op not in op_maq_map: op_maq_map[op] = set()
                                     op_maq_map[op].add(maq)
 
-            # Forzar valores de performance a número entero
             op_target_df['Perf_Clean'] = pd.to_numeric(op_target_df[col_perf].astype(str).str.replace('%', '').str.replace(',', '.'), errors='coerce').fillna(0)
             if op_target_df['Perf_Clean'].mean() <= 1.5 and op_target_df['Perf_Clean'].mean() > 0:
                 op_target_df['Perf_Clean'] = op_target_df['Perf_Clean'] * 100
@@ -647,12 +686,10 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
             df_grouped['Perf_Int'] = df_grouped['Perf_Clean'].round().astype(int)
             df_grouped['Op_Upper'] = df_grouped[col_op].astype(str).str.strip().str.upper()
             
-            # Asignar la lista de máquinas cruzando el nombre
             df_grouped['Maquinas'] = df_grouped['Op_Upper'].apply(
                 lambda x: ', '.join(sorted(op_maq_map.get(x, []))) if op_maq_map.get(x) else '-'
             )
 
-            # Si es Diario agrupamos
             if p_tipo == "Diario":
                 df_grouped = df_grouped.groupby(['Op_Upper', col_op, col_area, 'Maquinas']).agg(Perf_Int=('Perf_Int', 'mean')).reset_index()
                 df_grouped['Perf_Int'] = df_grouped['Perf_Int'].round().astype(int)
@@ -703,7 +740,6 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
                         pdf.set_font("Arial", '', 9)
                 pdf.ln(5)
                 
-            # IMPRIMIR SÓLO EL ÁREA CORRESPONDIENTE
             if area.upper() == "ESTAMPADO":
                 imprimir_cuadro_perfo("Operarios ESTAMPADO", df_est, (41, 128, 185)) 
             elif area.upper() == "SOLDADURA":
