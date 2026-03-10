@@ -329,10 +329,12 @@ def crear_pdf(area, label_reporte, oee_target_df, ini_date, fin_date):
     if ini_date is not None and fin_date is not None:
         df_pdf_raw = df_raw[(df_raw['Fecha_Filtro'] >= ini_date) & (df_raw['Fecha_Filtro'] <= fin_date)]
         df_prod_pdf_raw = df_prod_raw[(df_prod_raw['Fecha_Filtro'] >= ini_date) & (df_prod_raw['Fecha_Filtro'] <= fin_date)] if not df_prod_raw.empty else pd.DataFrame()
+        df_op_pdf_raw = df_operarios_raw[(df_operarios_raw['Fecha_Filtro'] >= ini_date) & (df_operarios_raw['Fecha_Filtro'] <= fin_date)] if not df_operarios_raw.empty else pd.DataFrame()
     else:
         # Fallback si el reporte no tiene fechas
         df_pdf_raw = pd.DataFrame(columns=df_raw.columns)
         df_prod_pdf_raw = pd.DataFrame(columns=df_prod_raw.columns)
+        df_op_pdf_raw = pd.DataFrame(columns=df_operarios_raw.columns)
 
     df_pdf = df_pdf_raw[df_pdf_raw['Fábrica'].str.contains(area, case=False, na=False)].copy()
     
@@ -354,6 +356,7 @@ def crear_pdf(area, label_reporte, oee_target_df, ini_date, fin_date):
     # 1. OEE DEL ÁREA Y MÁQUINAS
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(0, 10, clean_text("1. Resumen General y OEE"), ln=True)
+    
     metrics_area = get_metrics(area, oee_target_df)
     print_pdf_metric_row(pdf, f"General {area.upper()}", metrics_area)
     
@@ -425,42 +428,34 @@ def crear_pdf(area, label_reporte, oee_target_df, ini_date, fin_date):
         pdf.cell(0, 10, clean_text(f"{numero_seccion}. {titulo}"), ln=True)
         
         try:
-            # Apuntamos a las columnas exactas por su posición (0-indexed)
-            # Aseguramos que el dataframe tenga al menos 17 columnas (0 a 16)
             if df_pdf_raw.shape[1] > 16:
                 s_operario = df_pdf_raw.iloc[:, 0]
                 s_tiempo = df_pdf_raw.iloc[:, 9]
                 s_evento = df_pdf_raw.iloc[:, 16]
                 
-                # Aseguramos que el tiempo sea un número (reemplazando comas si hay)
                 s_tiempo_num = pd.to_numeric(s_tiempo.astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
                 
-                # Armamos un DataFrame temporal solo con lo que nos importa
                 df_temp = pd.DataFrame({
                     'Operario': s_operario,
                     'Tiempo': s_tiempo_num,
                     'Evento': s_evento.astype(str)
                 })
                 
-                # Filtramos por la palabra clave (BAÑO o REFRIGERIO)
                 mask = df_temp['Evento'].str.contains(regex_keyword, case=False, na=False)
                 df_filtrado = df_temp[mask]
                 
                 if not df_filtrado.empty:
-                    # Agrupamos por el operario, sumamos el tiempo y contamos los eventos
                     resumen = df_filtrado.groupby('Operario').agg(
                         Total_Min=('Tiempo', 'sum'), 
                         Eventos=('Tiempo', 'count')
                     ).reset_index().sort_values('Total_Min', ascending=False)
                     
-                    # Encabezados de tabla
                     pdf.set_font("Arial", 'B', 10)
                     pdf.cell(90, 8, clean_text("Operador"), border=1, align='C')
                     pdf.cell(30, 8, clean_text("Cant. Eventos"), border=1, align='C')
                     pdf.cell(30, 8, clean_text("Total (Min)"), border=1, align='C')
                     pdf.ln()
                     
-                    # Filas de tabla
                     pdf.set_font("Arial", '', 10)
                     for _, r in resumen.iterrows():
                         op = clean_text(r['Operario']) if str(r['Operario']).strip() else "Desconocido"
@@ -480,10 +475,10 @@ def crear_pdf(area, label_reporte, oee_target_df, ini_date, fin_date):
             pdf.cell(0, 8, clean_text(f"Error procesando los datos: {str(e)}"), ln=True)
 
     # 5. TIEMPO DE BAÑO
-    agregar_tabla_operarios("Tiempo de Baño por Operario", "BAÑO|BANO", 5)
+    agregar_tabla_operarios("5. Tiempo de Baño por Operario", "BAÑO|BANO", "")
     
     # 6. TIEMPO DE REFRIGERIO
-    agregar_tabla_operarios("Tiempo de Refrigerio por Operario", "REFRIGERIO", 6)
+    agregar_tabla_operarios("6. Tiempo de Refrigerio por Operario", "REFRIGERIO", "")
 
     # FINALIZAR Y GUARDAR PDF
     temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
@@ -496,8 +491,8 @@ def crear_pdf(area, label_reporte, oee_target_df, ini_date, fin_date):
 # 7. BOTONES DE EXPORTACIÓN PDF
 # ==========================================
 with col_p3:
+    # Colocamos los botones de generar en las mismas columnas de arriba
     col_btn1, col_btn2 = st.columns(2)
-    
     with col_btn1:
         if st.button("🛠️ Preparar PDF Estampado", use_container_width=True):
             with st.spinner("Generando PDF..."):
