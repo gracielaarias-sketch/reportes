@@ -356,7 +356,6 @@ def crear_pdf(area, label_reporte, oee_target_df, ini_date, fin_date):
     # 1. OEE DEL ÁREA Y MÁQUINAS
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(0, 10, clean_text("1. Resumen General y OEE"), ln=True)
-    
     metrics_area = get_metrics(area, oee_target_df)
     print_pdf_metric_row(pdf, f"General {area.upper()}", metrics_area)
     
@@ -428,7 +427,9 @@ def crear_pdf(area, label_reporte, oee_target_df, ini_date, fin_date):
         pdf.cell(0, 10, clean_text(f"{numero_seccion}. {titulo}"), ln=True)
         
         try:
+            # Validar que df_pdf_raw tenga suficientes columnas para acceder por índice
             if df_pdf_raw.shape[1] > 16:
+                # Col A (0), Col J (9), Col Q (16)
                 s_operario = df_pdf_raw.iloc[:, 0]
                 s_tiempo = df_pdf_raw.iloc[:, 9]
                 s_evento = df_pdf_raw.iloc[:, 16]
@@ -475,10 +476,10 @@ def crear_pdf(area, label_reporte, oee_target_df, ini_date, fin_date):
             pdf.cell(0, 8, clean_text(f"Error procesando los datos: {str(e)}"), ln=True)
 
     # 5. TIEMPO DE BAÑO
-    agregar_tabla_operarios("5. Tiempo de Baño por Operario", "BAÑO|BANO", "")
+    agregar_tabla_operarios("Tiempo de Baño por Operario", "BAÑO|BANO", "5")
     
     # 6. TIEMPO DE REFRIGERIO
-    agregar_tabla_operarios("6. Tiempo de Refrigerio por Operario", "REFRIGERIO", "")
+    agregar_tabla_operarios("Tiempo de Refrigerio por Operario", "REFRIGERIO", "6")
 
     # FINALIZAR Y GUARDAR PDF
     temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
@@ -492,7 +493,6 @@ def crear_pdf(area, label_reporte, oee_target_df, ini_date, fin_date):
 # ==========================================
 with col_p3:
     # Colocamos los botones de generar en las mismas columnas de arriba
-    col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
         if st.button("🛠️ Preparar PDF Estampado", use_container_width=True):
             with st.spinner("Generando PDF..."):
