@@ -383,28 +383,38 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
     # 2. Análisis de Fallas
     df_fallas_area = df_pdf[df_pdf['Nivel Evento 3'].astype(str).str.contains('FALLA', case=False)]
     if not df_fallas_area.empty:
-        check_space(pdf, 85)
+        check_space(pdf, 110) # Mayor espacio reservado para el Pareto
         print_section_title(pdf, "2. Analisis de Fallas (Diagrama Pareto)", theme_color)
         
-        top_fallas = df_fallas_area.groupby('Nivel Evento 6')['Tiempo (Min)'].sum().reset_index().sort_values('Tiempo (Min)', ascending=False).head(10)
-        top_fallas['% Acumulado'] = (top_fallas['Tiempo (Min)'].cumsum() / top_fallas['Tiempo (Min)'].sum()) * 100
+        # Agrupar las máquinas y sumar el tiempo (Top 5)
+        agg_fallas = df_fallas_area.groupby('Nivel Evento 6').agg(
+            Tiempo=('Tiempo (Min)', 'sum'),
+            Maquinas=('Máquina', lambda x: ', '.join(sorted(set(str(m) for m in x if str(m).strip() and str(m).lower() != 'nan'))))
+        ).reset_index()
+        
+        top_fallas = agg_fallas.sort_values('Tiempo', ascending=False).head(5)
+        # Etiqueta que incluye la máquina
+        top_fallas['Falla_Label'] = top_fallas.apply(lambda r: f"{r['Nivel Evento 6']} ({r['Maquinas']})" if r['Maquinas'] else r['Nivel Evento 6'], axis=1)
+        top_fallas['% Acumulado'] = (top_fallas['Tiempo'].cumsum() / top_fallas['Tiempo'].sum()) * 100
         
         fig_pareto = make_subplots(specs=[[{"secondary_y": True}]])
         fig_pareto.add_trace(
-            go.Bar(x=top_fallas['Nivel Evento 6'], y=top_fallas['Tiempo (Min)'], name='Minutos', marker_color=hex_theme, text=top_fallas['Tiempo (Min)'].round(1), textposition='outside'),
+            go.Bar(x=top_fallas['Falla_Label'], y=top_fallas['Tiempo'], name='Minutos', marker_color=hex_theme, text=top_fallas['Tiempo'].round(1), textposition='outside'),
             secondary_y=False,
         )
         fig_pareto.add_trace(
-            go.Scatter(x=top_fallas['Nivel Evento 6'], y=top_fallas['% Acumulado'], name='% Acum', mode='lines+markers', line=dict(color='red', width=3)),
+            go.Scatter(x=top_fallas['Falla_Label'], y=top_fallas['% Acumulado'], name='% Acum', mode='lines+markers', line=dict(color='red', width=3)),
             secondary_y=True,
         )
-        fig_pareto.update_layout(width=800, height=350, margin=dict(t=30, b=80, l=30, r=30), plot_bgcolor='rgba(0,0,0,0)', showlegend=False)
+        
+        # Más alto (500) y más margen inferior (180) para que entren los textos largos
+        fig_pareto.update_layout(width=800, height=500, margin=dict(t=30, b=180, l=30, r=30), plot_bgcolor='rgba(0,0,0,0)', showlegend=False)
         fig_pareto.update_yaxes(title_text="Minutos", secondary_y=False)
         fig_pareto.update_yaxes(title_text="% Acum", range=[0, 105], secondary_y=True)
         
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
             fig_pareto.write_image(tmpfile.name, engine="kaleido")
-            pdf.image(tmpfile.name, w=155)
+            pdf.image(tmpfile.name, w=160)
             os.remove(tmpfile.name)
         
         pdf.ln(3)
@@ -536,7 +546,6 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
             col_area = op_target_df.columns[1] if len(op_target_df.columns) > 1 else None
         
         if col_perf and col_area:
-            # 1. Mapeo de máquinas a operarios buscando en df_prod_pdf (columnas O a T)
             op_maq_map = {}
             if not df_prod_pdf.empty:
                 col_maq_prod = next((c for c in df_prod_pdf.columns if 'máquina' in c.lower() or 'maquina' in c.lower()), None)
@@ -553,7 +562,6 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
                                     if op not in op_maq_map: op_maq_map[op] = set()
                                     op_maq_map[op].add(maq)
 
-            # 2. Forzar valores de performance a número entero
             op_target_df['Perf_Clean'] = pd.to_numeric(op_target_df[col_perf].astype(str).str.replace('%', '').str.replace(',', '.'), errors='coerce').fillna(0)
             if op_target_df['Perf_Clean'].mean() <= 1.5 and op_target_df['Perf_Clean'].mean() > 0:
                 op_target_df['Perf_Clean'] = op_target_df['Perf_Clean'] * 100
@@ -562,12 +570,10 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
             df_grouped['Perf_Int'] = df_grouped['Perf_Clean'].round().astype(int)
             df_grouped['Op_Upper'] = df_grouped[col_op].astype(str).str.strip().str.upper()
             
-            # Asignar la lista de máquinas cruzando el nombre
             df_grouped['Maquinas'] = df_grouped['Op_Upper'].apply(
                 lambda x: ', '.join(sorted(op_maq_map.get(x, []))) if op_maq_map.get(x) else '-'
             )
 
-            # Si es Diario agrupamos
             if p_tipo == "Diario":
                 df_grouped = df_grouped.groupby(['Op_Upper', col_op, col_area, 'Maquinas']).agg(Perf_Int=('Perf_Int', 'mean')).reset_index()
                 df_grouped['Perf_Int'] = df_grouped['Perf_Int'].round().astype(int)
@@ -618,7 +624,6 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
                         pdf.set_font("Arial", '', 9)
                 pdf.ln(5)
                 
-            # IMPRIMIR SÓLO EL ÁREA CORRESPONDIENTE
             if area.upper() == "ESTAMPADO":
                 imprimir_cuadro_perfo("Operarios ESTAMPADO", df_est, (41, 128, 185)) 
             elif area.upper() == "SOLDADURA":
@@ -633,6 +638,71 @@ def crear_pdf(area, label_reporte, oee_target_df, op_target_df, ini_date, fin_da
         pdf.set_text_color(100, 100, 100)
         pdf.cell(0, 8, clean_text("No hay registros de performance de operarios para el periodo seleccionado."), ln=True)
 
+    # =========================================================
+    # 6 y 7. TABLAS DE PROMEDIO: BAÑO Y REFRIGERIO
+    # =========================================================
+    def agregar_tabla_tiempos_operarios(titulo, regex_keyword, numero_seccion):
+        check_space(pdf, 30)
+        print_section_title(pdf, f"{numero_seccion}. {titulo}", theme_color)
+
+        try:
+            if df_pdf_raw.shape[1] > 16:
+                s_operario = df_pdf_raw.iloc[:, 0]  # Columna A
+                s_tiempo = df_pdf_raw.iloc[:, 9]    # Columna J
+                s_evento = df_pdf_raw.iloc[:, 16]   # Columna Q
+
+                s_tiempo_num = pd.to_numeric(s_tiempo.astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
+
+                df_temp = pd.DataFrame({
+                    'Operario': s_operario,
+                    'Tiempo': s_tiempo_num,
+                    'Evento': s_evento.astype(str)
+                })
+
+                mask = df_temp['Evento'].str.contains(regex_keyword, case=False, na=False)
+                df_filtrado = df_temp[mask]
+
+                if not df_filtrado.empty:
+                    resumen = df_filtrado.groupby('Operario').agg(
+                        Total_Min=('Tiempo', 'sum'),
+                        Eventos=('Tiempo', 'count'),
+                        Promedio=('Tiempo', 'mean')
+                    ).reset_index().sort_values('Promedio', ascending=False)
+
+                    setup_table_header(pdf, theme_color)
+                    pdf.set_font("Arial", 'B', 9)
+                    pdf.cell(70, 7, clean_text("Operador"), border=1, align='C', fill=True)
+                    pdf.cell(30, 7, clean_text("Cant. Eventos"), border=1, align='C', fill=True)
+                    pdf.cell(30, 7, clean_text("Total (Min)"), border=1, align='C', fill=True)
+                    pdf.cell(30, 7, clean_text("Promedio (Min)"), border=1, align='C', ln=True, fill=True)
+
+                    setup_table_row(pdf)
+                    pdf.set_font("Arial", '', 9)
+                    for _, r in resumen.iterrows():
+                        op = clean_text(r['Operario']) if str(r['Operario']).strip() else "Desconocido"
+                        pdf.cell(70, 7, op, border=1)
+                        pdf.cell(30, 7, str(int(r['Eventos'])), border=1, align='C')
+                        pdf.cell(30, 7, f"{r['Total_Min']:.1f}", border=1, align='C')
+                        pdf.cell(30, 7, f"{r['Promedio']:.1f}", border=1, align='C', ln=True)
+                    pdf.ln(5)
+                else:
+                    pdf.set_font("Arial", '', 10)
+                    pdf.set_text_color(100, 100, 100)
+                    pdf.cell(0, 8, clean_text("No se registraron tiempos para este evento en este periodo."), ln=True)
+                    pdf.ln(2)
+            else:
+                pdf.set_font("Arial", '', 10)
+                pdf.set_text_color(100, 100, 100)
+                pdf.cell(0, 8, clean_text("Error: La base de datos no tiene suficientes columnas (Faltan A, J o Q)."), ln=True)
+        except Exception as e:
+            pdf.set_font("Arial", '', 10)
+            pdf.set_text_color(100, 100, 100)
+            pdf.cell(0, 8, clean_text(f"Error procesando los datos: {str(e)}"), ln=True)
+
+    agregar_tabla_tiempos_operarios("Tiempo Promedio de Bano por Operario", "BAÑO|BANO", "6")
+    agregar_tabla_tiempos_operarios("Tiempo Promedio de Refrigerio por Operario", "REFRIGERIO", "7")
+
+    # FINALIZAR
     temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     pdf.output(temp_pdf.name)
     with open(temp_pdf.name, "rb") as f: pdf_bytes = f.read()
