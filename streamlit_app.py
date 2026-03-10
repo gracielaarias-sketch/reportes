@@ -356,6 +356,7 @@ def crear_pdf(area, label_reporte, oee_target_df, ini_date, fin_date):
     # 1. OEE DEL ÁREA Y MÁQUINAS
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(0, 10, clean_text("1. Resumen General y OEE"), ln=True)
+    
     metrics_area = get_metrics(area, oee_target_df)
     print_pdf_metric_row(pdf, f"General {area.upper()}", metrics_area)
     
@@ -427,9 +428,7 @@ def crear_pdf(area, label_reporte, oee_target_df, ini_date, fin_date):
         pdf.cell(0, 10, clean_text(f"{numero_seccion}. {titulo}"), ln=True)
         
         try:
-            # Validar que df_pdf_raw tenga suficientes columnas para acceder por índice
             if df_pdf_raw.shape[1] > 16:
-                # Col A (0), Col J (9), Col Q (16)
                 s_operario = df_pdf_raw.iloc[:, 0]
                 s_tiempo = df_pdf_raw.iloc[:, 9]
                 s_evento = df_pdf_raw.iloc[:, 16]
@@ -469,7 +468,7 @@ def crear_pdf(area, label_reporte, oee_target_df, ini_date, fin_date):
                     pdf.cell(0, 8, clean_text("No se registraron tiempos para este evento en este período."), ln=True)
             else:
                 pdf.set_font("Arial", '', 10)
-                pdf.cell(0, 8, clean_text("Error: La base de datos no tiene suficientes columnas (Faltan A, J o Q)."), ln=True)
+                pdf.cell(0, 8, clean_text("No hay suficientes columnas en la base de datos (Faltan A, J o Q)."), ln=True)
                 
         except Exception as e:
             pdf.set_font("Arial", '', 10)
